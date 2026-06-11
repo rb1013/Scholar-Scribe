@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Writing Assistant</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}</script>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#171a21; --surface2:#1e222b; --border:#282d38;
+    --border2:#333a47;
+    --text:#eceff4; --muted:#9aa3b2; --faint:#6b7382;
+    --accent:#5b8cff; --accent-soft:rgba(91,140,255,.12);
+    --good:#54b364; --bad:#e06257; --warn:#d9a441;
+    --field:#12151c;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.18);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- top bar ---- */
+  header{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 24px; border-bottom:1px solid var(--border);
+    background:rgba(15,17,21,.85); backdrop-filter:blur(8px);
+    position:sticky; top:0; z-index:10;
+  }
+  .brand{display:flex;align-items:center;gap:11px;}
+  .logo{
+    width:34px;height:34px;border-radius:10px;
+    background:linear-gradient(150deg,#6f9bff 0%,#5b8cff 42%,#3f6ad8 100%);
+    display:flex;align-items:center;justify-content:center;position:relative;
+    box-shadow:0 4px 14px rgba(91,140,255,.40),inset 0 1px 0 rgba(255,255,255,.32);
+    overflow:hidden;
+  }
+  .logo::after{
+    content:"";position:absolute;inset:0;border-radius:inherit;
+    background:radial-gradient(120% 90% at 22% 8%,rgba(255,255,255,.45),transparent 55%);
+    pointer-events:none;
+  }
+  .logo svg{width:22px;height:22px;display:block;position:relative;z-index:1;}
+  .brand h1{font-size:15px;margin:0;font-weight:600;letter-spacing:-.1px;}
+  .brand .sub{color:var(--faint);font-size:12px;margin-top:1px;}
+  .keybar{display:flex;gap:8px;align-items:center;margin-left:auto;}
+  .keystate{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);}
+  .dot.on{background:var(--good);}
+  .keybar input{
+    width:230px;background:var(--field);color:var(--text);
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:8px 11px;font-size:13px;outline:none;font-family:inherit;
+  }
+  .keybar input:focus{border-color:var(--accent);}
+
+  /* ---- layout ---- */
+  .shell{max-width:1080px;margin:0 auto;padding:24px;}
+  .tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  .tab{
+    appearance:none;background:none;border:none;color:var(--muted);
+    font:inherit;font-weight:500;font-size:14px;cursor:pointer;
+    padding:9px 16px;border-bottom:2px solid transparent;margin-bottom:-1px;
+    border-radius:0;
+  }
+  .tab:hover{color:var(--text);}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent);}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .grid{display:grid;gap:18px;grid-template-columns:1fr 1fr;align-items:start;}
+  @media(max-width:860px){.grid{grid-template-columns:1fr;}}
+
+  .card{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:var(--shadow);
+    display:flex;flex-direction:column;
+  }
+  .card-head{
+    display:flex;align-items:center;gap:8px;
+    padding:13px 16px;border-bottom:1px solid var(--border);
+  }
+  .card-head h2{font-size:13px;font-weight:600;margin:0;letter-spacing:-.1px;}
+  .card-head .hint{font-size:12px;color:var(--faint);}
+  .card-head .right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+  .card-body{padding:16px;display:flex;flex-direction:column;gap:14px;}
+
+  /* ---- form bits ---- */
+  .field-label{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:-6px;}
+  textarea,select,input[type=text],input[type=password]{
+    width:100%;background:var(--field);color:var(--text);
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:11px 12px;font-size:14px;font-family:inherit;line-height:1.55;
+    resize:vertical;outline:none;transition:border-color .12s;
+  }
+  textarea:focus,select:focus,input:focus{border-color:var(--accent);}
+  textarea::placeholder{color:var(--faint);}
+  textarea#essay{min-height:300px;}
+  textarea#instr{min-height:72px;}
+  textarea#brainQ{min-height:96px;}
+  select{
+    width:auto;padding:8px 30px 8px 11px;font-size:13px;cursor:pointer;
+    appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%239aa3b2' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center;
+  }
+
+  .toolbar{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:11px 12px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+  }
+  .toolbar .sep{flex:1 1 auto;}
+  .ctl{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);}
+  .toggle{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;user-select:none;}
+  .toggle input{width:15px;height:15px;accent-color:var(--accent);margin:0;}
+
+  /* ---- buttons ---- */
+  button{
+    font:inherit;font-size:14px;font-weight:600;cursor:pointer;
+    border-radius:var(--radius-sm);padding:10px 16px;border:1px solid transparent;
+    transition:background .12s,border-color .12s,opacity .12s;
+  }
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:#6f9bff;}
+  .btn-ghost{background:transparent;color:var(--text);border-color:var(--border2);}
+  .btn-ghost:hover{background:var(--surface2);}
+  .btn-sm{padding:7px 12px;font-size:12.5px;font-weight:500;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .actions{display:flex;gap:9px;align-items:center;}
+  .actions .grow{flex:1 1 auto;}
+
+  /* ---- chips ---- */
+  .chiprow{display:flex;gap:7px;flex-wrap:wrap;}
+  .chip{
+    background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+    border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;
+    user-select:none;transition:color .12s,border-color .12s;
+  }
+  .chip:hover{color:var(--text);border-color:var(--accent);}
+
+  /* ---- file drop ---- */
+  .drop{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:9px 11px;background:var(--field);transition:border-color .12s,background .12s;
+  }
+  .drop.over{border-color:var(--accent);background:var(--accent-soft);}
+  .drop .hint{font-size:12px;color:var(--faint);}
+  .filechip{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+    padding:5px 6px 5px 11px;font-size:12px;color:var(--text);
+  }
+  .filechip .x{cursor:pointer;width:17px;height:17px;line-height:15px;text-align:center;border-radius:4px;background:var(--border2);color:var(--muted);font-size:13px;}
+  .filechip .x:hover{background:var(--bad);color:#fff;}
+
+  /* ---- output ---- */
+  .out{
+    background:var(--field);border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:16px;min-height:300px;font-size:14px;line-height:1.6;
+    white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;
+  }
+  .out:empty::before{content:attr(data-empty);color:var(--faint);}
+  .out h4{margin:18px 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);font-weight:600;}
+  .out h4:first-child{margin-top:0;}
+  .fb-overall{margin:0;line-height:1.6;}
+  .fb-item{display:flex;gap:11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin:8px 0;}
+  .fb-num{flex:0 0 auto;width:21px;height:21px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+  .fb-text{flex:1 1 auto;font-size:13px;line-height:1.55;}
+  .fb-where{font-style:italic;color:var(--muted);margin-bottom:6px;}
+  .fb-issue,.fb-should{margin:4px 0;}
+  .fb-tag{display:inline-block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:5px;margin-right:8px;vertical-align:1px;}
+  .fb-tag.bad{background:rgba(224,98,87,.16);color:#e58076;}
+  .fb-tag.good{background:rgba(84,179,100,.16);color:#74c481;}
+  .fb-list{margin:4px 0;padding-left:18px;}
+  .fb-list li{margin:5px 0;}
+  .change-good{color:var(--text);}
+  .change-warn{color:var(--warn);}
+
+  /* ---- brainstorm thread ---- */
+  .thread{display:flex;flex-direction:column;gap:12px;}
+  .msg{display:flex;flex-direction:column;gap:4px;max-width:92%;}
+  .msg .who{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);font-weight:600;}
+  .msg .bubble{padding:11px 13px;border-radius:12px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;}
+  .msg.user{align-self:flex-end;align-items:flex-end;}
+  .msg.user .bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
+  .msg.bot{align-self:flex-start;align-items:flex-start;}
+  .msg.bot .bubble{background:var(--surface2);border:1px solid var(--border);border-bottom-left-radius:4px;}
+  .continue{display:none;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+  .continue.show{display:flex;}
+  .continue textarea{min-height:60px;}
+  .continue .row{display:flex;gap:9px;align-items:center;}
+
+  /* ---- misc ---- */
+  .meta{font-size:12px;color:var(--faint);}
+  .counter{font-size:12px;color:var(--faint);}
+  .status{font-size:12.5px;min-height:17px;color:var(--muted);}
+  .status.err{color:var(--bad);}
+  .status.ok{color:var(--good);}
+  .spinner{
+    display:inline-block;width:13px;height:13px;border:2px solid var(--border2);
+    border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;
+    vertical-align:-2px;margin-right:6px;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .sources{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;}
+  .sources:empty{display:none;}
+  .diffnote{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:600;}
+  .source{font-size:12.5px;color:var(--muted);}
+  .source a{color:var(--accent);text-decoration:none;}
+  .source a:hover{text-decoration:underline;}
+  .source-host{color:var(--muted);opacity:.75;}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo" aria-label="ScholarScribe logo">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="lg-nib" x1="4" y1="3" x2="19" y2="20" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#ffffff"/>
+            <stop offset="1" stop-color="#dbe6ff"/>
+          </linearGradient>
+        </defs>
+        <path d="M17.6 4.1 6.4 15.3l-1 4.3 4.3-1L20.9 7.4a1.85 1.85 0 0 0 0-2.6l-.7-.7a1.85 1.85 0 0 0-2.6 0Z"
+          fill="url(#lg-nib)" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M5.4 19.6 9.7 18.6" stroke="#3f6ad8" stroke-width="1.1" stroke-linecap="round"/>
+        <path d="M9 13l2.3 2.3" stroke="#3f6ad8" stroke-width="1.1" stroke-linecap="round"/>
+        <path d="M6.2 4.4 6.9 6.2 8.7 6.9 6.9 7.6 6.2 9.4 5.5 7.6 3.7 6.9 5.5 6.2Z" fill="#ffffff"/>
+      </svg>
+    </div>
+    <div>
+      <h1>ScholarScribe</h1>
+      <div class="sub">Get feedback on your writing &middot; you make the edits</div>
+    </div>
+  </div>
+  <div class="keybar">
+    <span class="keystate"><span class="dot" id="keyDot"></span><span id="keyState">No key</span></span>
+    <input type="password" id="apiKey" placeholder="OpenAI API key (sk-...)" autocomplete="off">
+    <button class="btn-ghost btn-sm" id="saveKey">Save</button>
+  </div>
+</header>
+
+<div class="shell">
+  <div class="tabs">
+    <button class="tab active" data-tab="review">Review</button>
+    <button class="tab" data-tab="brainstorm">Brainstorm &amp; research</button>
+  </div>
+
+  <!-- ============ REVIEW TAB ============ -->
+  <div class="panel active" id="panel-review">
+    <div class="grid">
+
+      <!-- input -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Your writing</h2>
+          <div class="right"><span class="counter" id="inCount">0 words</span></div>
+        </div>
+        <div class="card-body">
+          <div class="drop" id="drop">
+            <input type="file" id="fileInput" accept=".txt,.md,.markdown,.html,.htm,.csv,.json,.rtf,.log,.docx,.pdf" hidden>
+            <button class="btn-ghost btn-sm" id="browseBtn" type="button">Choose file</button>
+            <span class="hint" id="dropHint">or drop a .txt, .md, .docx, .pdf, .html&hellip;</span>
+            <span class="filechip" id="fileChip" style="display:none;"><span id="fileName"></span><span class="x" id="fileClear" title="Remove">&times;</span></span>
+          </div>
+
+          <textarea id="essay" placeholder="Paste your essay, paragraph, email, story&hellip; or upload a file above."></textarea>
+          <textarea id="instr" style="display:none;"></textarea>
+
+          <div class="toolbar">
+            <div class="ctl">Model
+              <select id="model" title="Model">
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              </select>
+            </div>
+            <label class="toggle"><input type="checkbox" id="useWeb" checked> Web search</label>
+          </div>
+
+          <div class="actions">
+            <button id="goBtn" class="btn-primary grow">Get feedback</button>
+            <button id="clearBtn" class="btn-ghost">Clear</button>
+          </div>
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+
+      <!-- output -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Feedback</h2>
+          <span class="hint">what to fix &mdash; you make the edits</span>
+          <div class="right">
+            <span class="counter" id="outCount"></span>
+            <button class="btn-ghost btn-sm" id="copyBtn">Copy</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="out" id="output" data-empty="Feedback on your writing will appear here. It tells you what to fix — you make the edits."></div>
+          <div class="sources" id="sources"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ BRAINSTORM TAB ============ -->
+  <div class="panel" id="panel-brainstorm">
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-head"><h2>Ask anything</h2><span class="hint">ideas, research, questions</span></div>
+        <div class="card-body">
+          <textarea id="brainQ" placeholder="e.g. Brainstorm 10 essay angles on AI in education. / Find recent stats on teen screen time. / Counterarguments to a $15 minimum wage?"></textarea>
+
+          <div class="toolbar">
+            <div class="ctl">Model
+              <select id="brainModel" title="Model">
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              </select>
+            </div>
+            <label class="toggle"><input type="checkbox" id="brainWeb" checked> Web search</label>
+          </div>
+
+          <div class="actions">
+            <button id="brainBtn" class="btn-primary grow">Brainstorm</button>
+            <button id="brainClear" class="btn-ghost">Clear</button>
+          </div>
+          <div class="status" id="brainStatus"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Result</h2>
+          <div class="right">
+            <button class="btn-ghost btn-sm" id="brainToEssay">Send to Review</button>
+            <button class="btn-ghost btn-sm" id="brainCopy">Copy</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="out" id="brainOut" data-empty="Your answer will appear here."></div>
+          <div class="sources" id="brainSources"></div>
+
+          <div class="continue" id="brainContinue">
+            <textarea id="brainFollow" placeholder="Continue the thread — ask a follow-up, push back, or go deeper..."></textarea>
+            <div class="row">
+              <button id="brainSend" class="btn-primary grow">Continue thread</button>
+              <button id="brainReset" class="btn-ghost btn-sm">New thread</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const KEY_STORE = 'wa_openai_key';
+
+const PRESETS = [
+  ["Grammar & spelling","Point out every grammar, spelling, and punctuation error and tell me what it should be."],
+  ["Persuasiveness","Tell me where my argument is weak or unconvincing and what would make it more persuasive."],
+  ["Cut the fluff","Show me the filler, redundancy, and wordy spots I should cut, and what to tighten."],
+  ["Tone","Tell me where the tone is off for my goal and how it should read instead."],
+  ["Flow","Point out where the flow or transitions break down and what would fix them."],
+  ["Thesis","Tell me if my thesis/main point is clear and what should support it better."],
+  ["Fact-check (web)","Check my factual claims against the web and flag anything wrong, unsupported, or outdated."],
+  ["Where it's thin","Tell me which parts need more depth, detail, or evidence and what to add."],
+  ["Word choice","Flag weak or vague word choices and suggest what stronger words would fit."],
+];
+
+function countWords(t){ t=t.trim(); return t? t.split(/\s+/).length : 0; }
+
+function setStatus(msg, kind){
+  const el = $('status');
+  el.className = 'status' + (kind ? ' '+kind : '');
+  el.innerHTML = msg;
+}
+
+function refreshKeyPill(){
+  const k = $('apiKey').value.trim();
+  $('keyState').textContent = k ? 'Key set' : 'No key';
+  $('keyDot').classList.toggle('on', !!k);
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=> t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=> p.classList.toggle('active', p.id==='panel-'+name));
+}
+document.querySelectorAll('.tab').forEach(t=> t.onclick = ()=> switchTab(t.dataset.tab));
+
+(function init(){
+  const saved = localStorage.getItem(KEY_STORE);
+  if(saved){ $('apiKey').value = saved; }
+  refreshKeyPill();
+
+  $('essay').addEventListener('input', ()=> $('inCount').textContent = countWords($('essay').value)+' words');
+  $('apiKey').addEventListener('input', refreshKeyPill);
+
+  setupFileUpload();
+})();
+
+function setEssayText(text, fileName){
+  $('essay').value = text;
+  $('inCount').textContent = countWords(text)+' words';
+  if(fileName){
+    $('fileName').textContent = fileName;
+    $('fileChip').style.display = 'inline-flex';
+    $('dropHint').style.display = 'none';
+  }
+}
+
+function clearFile(){
+  $('fileInput').value = '';
+  $('fileChip').style.display = 'none';
+  $('fileName').textContent = '';
+  $('dropHint').style.display = '';
+}
+
+function readAsText(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(r.result);
+    r.onerror = ()=> reject(new Error('Could not read file.'));
+    r.readAsText(file);
+  });
+}
+
+function readAsArrayBuffer(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(r.result);
+    r.onerror = ()=> reject(new Error('Could not read file.'));
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function stripHtml(html){
+  const doc = new DOMParser().parseFromString(html,'text/html');
+  return (doc.body ? doc.body.textContent : html).replace(/\n{3,}/g,'\n\n').trim();
+}
+
+function stripRtf(rtf){
+  return rtf
+    .replace(/\\par[d]?/g,'\n')
+    .replace(/\{\\[^{}]*\}/g,'')
+    .replace(/\\[a-z]+-?\d* ?/gi,'')
+    .replace(/[{}]/g,'')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
+}
+
+async function extractDocx(buffer){
+  if(typeof JSZip === 'undefined'){
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  const xmlFile = zip.file('word/document.xml');
+  if(!xmlFile) throw new Error('Not a valid .docx (no document.xml).');
+  const xml = await xmlFile.async('string');
+  const doc = new DOMParser().parseFromString(xml,'application/xml');
+  const paras = doc.getElementsByTagName('w:p');
+  let out = [];
+  for(let i=0;i<paras.length;i++){
+    const texts = paras[i].getElementsByTagName('w:t');
+    let line = '';
+    for(let j=0;j<texts.length;j++){ line += texts[j].textContent; }
+    out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+
+async function extractPdf(buffer){
+  if(typeof pdfjsLib === 'undefined') throw new Error('PDF reader failed to load (check your connection).');
+  const pdf = await pdfjsLib.getDocument({data:buffer}).promise;
+  let out = [];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    out.push(content.items.map(it=>it.str).join(' '));
+  }
+  return out.join('\n\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve;
+    s.onerror = ()=> reject(new Error('Failed to load '+src));
+    document.head.appendChild(s);
+  });
+}
+
+async function handleFile(file){
+  if(!file) return;
+  const name = file.name;
+  const ext = (name.split('.').pop()||'').toLowerCase();
+  setStatus('<span class="spinner"></span>Reading '+name+'...','');
+  try{
+    let text = '';
+    if(['txt','md','markdown','csv','json','log'].includes(ext)){
+      text = await readAsText(file);
+    } else if(ext === 'rtf'){
+      text = stripRtf(await readAsText(file));
+    } else if(ext === 'html' || ext === 'htm'){
+      text = stripHtml(await readAsText(file));
+    } else if(ext === 'docx'){
+      text = await extractDocx(await readAsArrayBuffer(file));
+    } else if(ext === 'pdf'){
+      text = await extractPdf(await readAsArrayBuffer(file));
+    } else {
+      // Unknown extension: try plain text as a fallback.
+      text = await readAsText(file);
+    }
+    if(!text || !text.trim()){
+      setStatus('Couldn\'t extract any text from "'+name+'". It may be empty or image-only.','err');
+      return;
+    }
+    setEssayText(text.trim(), name);
+    setStatus('Loaded "'+name+'" ('+countWords(text)+' words). Add your instructions and improve.','ok');
+  }catch(err){
+    setStatus('Error reading file: '+err.message,'err');
+  }
+}
+
+function setupFileUpload(){
+  $('browseBtn').onclick = ()=> $('fileInput').click();
+  $('fileInput').addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+  $('fileClear').onclick = ()=>{ clearFile(); setStatus('File removed.',''); };
+
+  const drop = $('drop');
+  ['dragenter','dragover'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e=>{
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) handleFile(f);
+  });
+}
+
+$('saveKey').onclick = ()=>{
+  const k = $('apiKey').value.trim();
+  if(!k){ localStorage.removeItem(KEY_STORE); refreshKeyPill(); setStatus('Key cleared.',''); return; }
+  localStorage.setItem(KEY_STORE, k);
+  refreshKeyPill();
+  setStatus('Key saved in this browser.','ok');
+};
+
+$('clearBtn').onclick = ()=>{
+  $('essay').value=''; $('instr').value='';
+  $('inCount').textContent='0 words';
+  $('output').innerHTML=''; $('sources').innerHTML='';
+  $('outCount').textContent='';
+  clearFile();
+  setStatus('','');
+};
+
+$('copyBtn').onclick = ()=>{
+  const t = $('output').innerText;
+  if(!t.trim()){ return; }
+  navigator.clipboard.writeText(t).then(()=> setStatus('Feedback copied to clipboard.','ok'));
+};
+
+function buildInput(essay, instr, web){
+  const sys = `You are an expert writing coach. The user gives you a piece of writing and tells you what they want to improve. Do NOT rewrite the text for them. Instead, tell them what is weak and what it SHOULD be, so they can fix it themselves.
+
+HOW TO CHOOSE WHAT TO FLAG (this matters most):
+- Prioritize by impact. Lead with the issues that most hurt the writing's purpose; ignore trivial nitpicks unless the user specifically asked about that category.
+- Stay anchored to what the user asked for. If they asked about one thing (e.g. flow), the bulk of your feedback must be about that. You may add at most 1-2 other issues only if they are genuinely serious, and put them last.
+- Do not pad. Report only real problems. If the writing is solid, it's fine to return just 1-3 items. Never invent issues to fill a quota. Better to give 3 sharp notes than 10 weak ones.
+- One issue per item. Don't merge two unrelated problems into one card, and don't split one problem across two cards.
+- Each item must point to a real, specific span of THEIR text. Quote the exact phrase or sentence verbatim (trimmed if long) so they can Ctrl-F it. Never invent a quote or paraphrase the location.
+
+HOW TO EXPLAIN EACH ISSUE:
+- "issue": 1-2 plain sentences naming the concrete problem in THIS specific quote. No vague coach-speak ("consider varying your structure", "this could flow better") — say exactly what is wrong and why it weakens the writing.
+- "should_be": 1-2 sentences of concrete, actionable direction tied to that same quote — what to change it toward, or a short illustrative example of the fixed direction. Guidance, not a finished rewrite of the whole piece.
+- Talk like a sharp human editor, not a checklist generator. Be direct and honest; no filler praise.${web ? '\n- Use web search when a claim should be fact-checked or could be strengthened with real evidence, and say what you found.' : ''}
+
+Respond ONLY with a single JSON object, no markdown fences, in exactly this shape:
+{
+  "overall": "2-4 sentence honest assessment of the writing as it stands",
+  "feedback": [ { "where": "exact verbatim quote of the problem spot from their text", "issue": "what is weak or wrong in this specific quote, and why", "should_be": "concrete direction to fix it (guidance, not a full rewrite)" } ],
+  "strengths": [ "things that already work well and should be kept" ],
+  "couldnt": [ "anything you couldn't assess or verify, or caveats" ]
+}
+Order "feedback" most important first. Each item is one concrete problem the user should fix themselves. Use empty arrays where nothing applies.`;
+  const user = `WHAT I WANT TO IMPROVE:\n${instr || 'Give me feedback on grammar, clarity, flow, and how to make this stronger — tell me what to fix, do not rewrite it.'}\n\n--- MY TEXT ---\n${essay}\n--- END ---`;
+  return [
+    { role:'system', content: sys },
+    { role:'user', content: user }
+  ];
+}
+
+function parseResponse(data){
+  let text = '';
+  let annotations = [];
+  if(typeof data.output_text === 'string' && data.output_text){ text = data.output_text; }
+  if(Array.isArray(data.output)){
+    data.output.forEach(item=>{
+      if(item.type === 'message' && Array.isArray(item.content)){
+        item.content.forEach(c=>{
+          if(c.type === 'output_text'){
+            if(!text) text += c.text;
+            if(Array.isArray(c.annotations)) annotations = annotations.concat(c.annotations);
+          }
+          if(Array.isArray(c.annotations)) annotations = annotations.concat(c.annotations);
+        });
+      }
+      // Web search tool calls can carry their own results/sources.
+      if(item.type === 'web_search_call'){
+        const res = (item.action && item.action.results) || item.results;
+        if(Array.isArray(res)) annotations = annotations.concat(res);
+        const q = item.action && item.action.query;
+        if(q) annotations.push({ type:'search_query', query:q });
+      }
+      if(Array.isArray(item.annotations)) annotations = annotations.concat(item.annotations);
+    });
+  }
+  return { text, annotations };
+}
+
+// Pull a clean {url,title} out of the many shapes the API can return.
+function extractCitation(a){
+  if(!a || typeof a !== 'object') return null;
+  if(a.type === 'url_citation' && a.url_citation){
+    return { url:a.url_citation.url, title:a.url_citation.title || a.url_citation.url };
+  }
+  if(a.type === 'url_citation' && a.url){ return { url:a.url, title:a.title || a.url }; }
+  // web_search_call result rows.
+  if(a.url && (a.title || a.type === undefined || a.type === 'web_search_result')){
+    return { url:a.url, title:a.title || a.url };
+  }
+  return null;
+}
+
+function extractJson(text){
+  let t = text.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  try{ return JSON.parse(t); }catch(_){}
+  const s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if(s !== -1 && e !== -1 && e > s){
+    try{ return JSON.parse(t.slice(s,e+1)); }catch(_){}
+  }
+  return null;
+}
+
+async function callOpenAI(key, model, input, web){
+  const body = { model, input };
+  if(web){ body.tools = [{ type:'web_search' }]; }
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+key },
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    let msg = 'Request failed ('+res.status+')';
+    try{ const e = await res.json(); if(e.error && e.error.message) msg = e.error.message; }catch(_){}
+    throw new Error(msg);
+  }
+  return parseResponse(await res.json());
+}
+
+function renderSources(boxId, annotations){
+  const box = $(boxId);
+  box.innerHTML = '';
+  if(!annotations || !annotations.length) return;
+  const seen = new Set();
+  const items = [];
+  annotations.forEach(a=>{
+    const c = extractCitation(a);
+    if(!c || !c.url) return;
+    // Only keep real, openable web links.
+    let href;
+    try{ href = new URL(c.url); }catch(_){ return; }
+    if(href.protocol !== 'http:' && href.protocol !== 'https:') return;
+    const u = href.href;
+    if(seen.has(u)) return; seen.add(u);
+    items.push({ url:u, title:c.title || href.hostname, host:href.hostname.replace(/^www\./,'') });
+  });
+  if(!items.length) return;
+  const head = document.createElement('div');
+  head.className='diffnote';
+  head.textContent = 'Sources used ('+items.length+') — click to open:';
+  box.appendChild(head);
+  items.forEach((it,i)=>{
+    const d = document.createElement('div');
+    d.className='source';
+    const a = document.createElement('a');
+    a.href = it.url; a.target='_blank'; a.rel='noopener noreferrer';
+    a.textContent = (i+1)+'. '+it.title;
+    const host = document.createElement('span');
+    host.className='source-host';
+    host.textContent = ' ('+it.host+')';
+    d.appendChild(a);
+    d.appendChild(host);
+    box.appendChild(d);
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+}
+
+function renderFeedback(parsed){
+  const out = $('output');
+  out.innerHTML = '';
+
+  const overall = parsed && parsed.overall ? String(parsed.overall) : '';
+  const feedback = (parsed && Array.isArray(parsed.feedback)) ? parsed.feedback : [];
+  const strengths = (parsed && Array.isArray(parsed.strengths)) ? parsed.strengths : [];
+  const couldnt = (parsed && Array.isArray(parsed.couldnt)) ? parsed.couldnt : [];
+
+  if(overall){
+    const h = document.createElement('h4'); h.textContent='Overall'; out.appendChild(h);
+    const p = document.createElement('p'); p.className='fb-overall'; p.textContent=overall; out.appendChild(p);
+  }
+
+  if(feedback.length){
+    const h = document.createElement('h4'); h.textContent='What to fix ('+feedback.length+')'; out.appendChild(h);
+    feedback.forEach((f,i)=>{
+      const card = document.createElement('div');
+      card.className='fb-item';
+      const where = f && f.where ? f.where : '';
+      const issue = f && f.issue ? f.issue : (typeof f==='string'?f:'');
+      const should = f && f.should_be ? f.should_be : '';
+      let html = '<div class="fb-num">'+(i+1)+'</div><div class="fb-text">';
+      if(where) html += '<div class="fb-where">&ldquo;'+escapeHtml(where)+'&rdquo;</div>';
+      if(issue) html += '<div class="fb-issue"><span class="fb-tag bad">Issue</span>'+escapeHtml(issue)+'</div>';
+      if(should) html += '<div class="fb-should"><span class="fb-tag good">Should be</span>'+escapeHtml(should)+'</div>';
+      html += '</div>';
+      card.innerHTML = html;
+      out.appendChild(card);
+    });
+  }
+
+  if(strengths.length){
+    const h = document.createElement('h4'); h.textContent='Keep these (already working)'; out.appendChild(h);
+    const ul = document.createElement('ul'); ul.className='fb-list';
+    strengths.forEach(s=>{ const li=document.createElement('li'); li.className='change-good'; li.textContent = typeof s==='string'?s:JSON.stringify(s); ul.appendChild(li); });
+    out.appendChild(ul);
+  }
+
+  if(couldnt.length){
+    const h = document.createElement('h4'); h.textContent="Couldn't assess / caveats"; out.appendChild(h);
+    const ul = document.createElement('ul'); ul.className='fb-list';
+    couldnt.forEach(s=>{ const li=document.createElement('li'); li.className='change-warn'; li.textContent = typeof s==='string'?s:JSON.stringify(s); ul.appendChild(li); });
+    out.appendChild(ul);
+  }
+
+  $('outCount').textContent = feedback.length+' fix'+(feedback.length===1?'':'es');
+}
+
+async function improve(){
+  const key = $('apiKey').value.trim();
+  const essay = $('essay').value.trim();
+  const instr = $('instr').value.trim();
+  const model = $('model').value;
+  const web = $('useWeb').checked;
+
+  if(!key){ setStatus('Add your OpenAI API key first (top right).','err'); return; }
+  if(!essay){ setStatus('Paste some text to get feedback on.','err'); return; }
+
+  $('goBtn').disabled = true;
+  $('output').innerHTML=''; $('sources').innerHTML='';
+  setStatus('<span class="spinner"></span>Reviewing your writing'+(web?' (searching the web if needed)':'')+'...','');
+
+  try{
+    const { text, annotations } = await callOpenAI(key, model, buildInput(essay, instr, web), web);
+    if(!text){ setStatus('No response was returned. Try again or switch model.','err'); return; }
+
+    const parsed = extractJson(text);
+    if(parsed && (parsed.overall || Array.isArray(parsed.feedback))){
+      renderFeedback(parsed);
+      setStatus('Done. These are suggestions — you make the edits.','ok');
+    } else {
+      // Fallback: model returned plain prose instead of JSON.
+      $('output').textContent = text.trim();
+      $('outCount').textContent = '';
+      setStatus('Done.','ok');
+    }
+    renderSources('sources', annotations);
+  }catch(err){
+    setStatus('Error: '+err.message,'err');
+  }finally{
+    $('goBtn').disabled = false;
+  }
+}
+
+$('goBtn').onclick = improve;
+$('essay').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') improve(); });
+$('instr').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') improve(); });
+/* ---------- Brainstorm ---------- */
+function buildBrain(thread, web){
+  const sys = `You are a sharp, resourceful brainstorming and research partner for a writer. You help them think: brainstorm ideas, research facts, outline, explain, compare, lay out arguments, and suggest directions.
+- HARD RULE: You do NOT write the finished piece for the user. Never produce a full essay, article, story, paper, or any complete polished draft, even if explicitly asked. If the user asks you to "write the essay" (or write any complete piece) for them, decline that part and instead help them do it themselves: give angles, an outline, talking points, a thesis, evidence, hooks, or feedback on their own writing. You may write tiny fragments to illustrate (a single sample sentence, one example hook), but never assemble them into a complete draft.
+- Be genuinely useful and specific. Prefer concrete ideas, examples, and structure over vague generalities.
+- Use clear formatting (short paragraphs, numbered lists, bullets) so it's easy to skim and use.
+- This is an ongoing conversation: build on what was already said, remember the earlier turns, and answer follow-ups in context.${web ? '\n- Use web search for anything that benefits from current, factual, or sourced information, and ground claims in what you find.' : ''}`;
+  return [{ role:'system', content: sys }].concat(thread);
+}
+
+async function brainstorm(){
+  const key = $('apiKey').value.trim();
+  const q = $('brainQ').value.trim();
+  const model = $('brainModel').value;
+  const web = $('brainWeb').checked;
+
+  if(!key){ setStatus('Add your OpenAI API key first (top right).','err'); $('brainStatus').className='status err'; $('brainStatus').textContent='Add your OpenAI API key first (top right).'; return; }
+  if(!q){ $('brainStatus').className='status err'; $('brainStatus').textContent='Type a question or topic to brainstorm.'; return; }
+
+  $('brainBtn').disabled = true;
+  $('brainOut').textContent=''; $('brainSources').innerHTML='';
+  $('brainStatus').className='status';
+  $('brainStatus').innerHTML='<span class="spinner"></span>Thinking'+(web?' &amp; searching the web':'')+'...';
+
+  try{
+    brainThread = [{ role:'user', content:q }];
+    const { text, annotations } = await callOpenAI(key, model, buildBrain(brainThread, web), web);
+    if(!text){ $('brainStatus').className='status err'; $('brainStatus').textContent='No answer returned. Try again.'; brainThread=[]; return; }
+    const answer = text.trim();
+    brainThread.push({ role:'assistant', content:answer });
+    renderBrainThread();
+    renderSources('brainSources', annotations);
+    $('brainContinue').classList.add('show');
+    $('brainStatus').className='status ok'; $('brainStatus').textContent='Done.';
+  }catch(err){
+    $('brainStatus').className='status err'; $('brainStatus').textContent='Error: '+err.message;
+  }finally{
+    $('brainBtn').disabled = false;
+  }
+}
+
+let brainThread = [];
+
+function renderBrainThread(){
+  const out = $('brainOut');
+  out.textContent = '';
+  out.classList.add('thread');
+  brainThread.forEach(m=>{
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (m.role==='user'?'user':'bot');
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = m.role==='user' ? 'You' : 'Assistant';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = m.content;
+    wrap.appendChild(who); wrap.appendChild(bubble);
+    out.appendChild(wrap);
+  });
+  out.scrollTop = out.scrollHeight;
+}
+
+function resetBrainThread(){
+  brainThread = [];
+  $('brainOut').textContent = '';
+  $('brainOut').classList.remove('thread');
+  $('brainSources').innerHTML = '';
+  $('brainFollow').value = '';
+  $('brainContinue').classList.remove('show');
+}
+
+async function brainContinue(){
+  const key = $('apiKey').value.trim();
+  const q = $('brainFollow').value.trim();
+  const model = $('brainModel').value;
+  const web = $('brainWeb').checked;
+
+  if(!brainThread.length){ return; }
+  if(!key){ $('brainStatus').className='status err'; $('brainStatus').textContent='Add your OpenAI API key first (top right).'; return; }
+  if(!q){ $('brainStatus').className='status err'; $('brainStatus').textContent='Type a follow-up to continue the thread.'; return; }
+
+  brainThread.push({ role:'user', content:q });
+  $('brainFollow').value = '';
+  renderBrainThread();
+  $('brainSend').disabled = true;
+  $('brainStatus').className='status';
+  $('brainStatus').innerHTML='<span class="spinner"></span>Thinking'+(web?' &amp; searching the web':'')+'...';
+
+  try{
+    const { text, annotations } = await callOpenAI(key, model, buildBrain(brainThread, web), web);
+    if(!text){ $('brainStatus').className='status err'; $('brainStatus').textContent='No answer returned. Try again.'; brainThread.pop(); renderBrainThread(); return; }
+    brainThread.push({ role:'assistant', content:text.trim() });
+    renderBrainThread();
+    renderSources('brainSources', annotations);
+    $('brainStatus').className='status ok'; $('brainStatus').textContent='Done.';
+  }catch(err){
+    $('brainStatus').className='status err'; $('brainStatus').textContent='Error: '+err.message;
+    brainThread.pop(); renderBrainThread();
+  }finally{
+    $('brainSend').disabled = false;
+  }
+}
+
+$('brainSend').onclick = brainContinue;
+$('brainFollow').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') brainContinue(); });
+$('brainReset').onclick = ()=>{ resetBrainThread(); $('brainStatus').className='status'; $('brainStatus').textContent='New thread started.'; };
+
+$('brainBtn').onclick = brainstorm;
+$('brainQ').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') brainstorm(); });
+$('brainClear').onclick = ()=>{ $('brainQ').value=''; resetBrainThread(); $('brainStatus').textContent=''; };
+$('brainCopy').onclick = ()=>{ const t=$('brainOut').textContent; if(t) navigator.clipboard.writeText(t).then(()=>{ $('brainStatus').className='status ok'; $('brainStatus').textContent='Copied.'; }); };
+$('brainToEssay').onclick = ()=>{
+  const last = [...brainThread].reverse().find(m=>m.role==='assistant');
+  const t = last ? last.content : $('brainOut').textContent;
+  if(!t) return;
+  $('essay').value = t;
+  $('inCount').textContent = countWords(t)+' words';
+  switchTab('review');
+  window.scrollTo({top:0,behavior:'smooth'});
+  setStatus('Brought into the Review tab.','ok');
+};
+</script>
+</body>
+</html>
