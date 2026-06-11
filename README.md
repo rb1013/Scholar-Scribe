@@ -3,7 +3,9 @@ Every student's dream English tutor...for free
 Built to maximize human thought and filters out any cheating
 
 1)Provides feedback on an already written essay
+
 2)Brainstorms with you on an essay your currently writing
+
 3)Researches for you on any topic
 
 10x times as fast as a real tutor
